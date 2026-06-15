@@ -1,32 +1,33 @@
 # personal-claude-code-dashboard
 
-Live ticket board for [**personal-claude-code v2**](https://github.com/sideholic/personal-claude-code-v2). A read-only Next.js app that tails the plugin's append-only `.claude-team/events.jsonl` and renders a kanban board (queue → in-progress → in-review → done) with per-skill stage detail, streamed live over Server-Sent Events.
+[personal-claude-code v2](https://github.com/sideholic/personal-claude-code-v2) 플러그인의 티켓을 실시간으로 보여주는 보드. 플러그인이 기록하는 `.claude-team/events.jsonl`을 읽어 칸반(queue → in-progress → in-review → done)으로 렌더링한다.
 
-It **never** writes plugin state or wakes the orchestrator — the tail-watch lives only here, in the read layer.
-
-## Contract
-
-The event schema is fixed by the plugin's `docs/events-contract.md` (v1). `lib/events.ts` mirrors it: a common envelope (`v/seq/ts/event/feature/ticket/actor/data`), Tier-1 ticket lifecycle (board columns) + Tier-2 per-skill `stage.*` (card timeline). Unknown event types are ignored (forward-compatible).
-
-## Run (local)
+## 실행 (로컬)
 
 ```bash
 pnpm install
-EVENTS_LOG=/abs/path/to/project/.claude-team/events.jsonl pnpm dev
-# open http://localhost:4317
+EVENTS_LOG=/절대경로/대상프로젝트/.claude-team/events.jsonl pnpm dev
+# http://localhost:4317
 ```
 
-If `EVENTS_LOG` is unset it defaults to `../personal-claude-code-v2/.claude-team/events.jsonl` (the dogfood sibling layout).
+`EVENTS_LOG`을 지정하지 않으면 `../personal-claude-code-v2/.claude-team/events.jsonl`을 기본으로 읽는다.
 
-## Run (docker)
+## 실행 (Docker)
 
 ```bash
 docker build -t claude-board .
 docker run -p 4317:4317 \
-  -v /abs/path/to/project/.claude-team/events.jsonl:/data/events.jsonl:ro \
+  -v /절대경로/대상프로젝트/.claude-team/events.jsonl:/data/events.jsonl:ro \
   claude-board
 ```
 
-## Stack
+## 환경변수
 
-Next.js 15 (App Router) · React 19 · TypeScript · SSE (no extra deps). MVP — live polling tail at 1s. WebSocket upgrade is a later option.
+| 변수 | 설명 | 기본값 |
+|---|---|---|
+| `EVENTS_LOG` | 읽을 `events.jsonl` 절대경로 | `../personal-claude-code-v2/.claude-team/events.jsonl` |
+| `PORT` | 서버 포트 | `4317` |
+
+## 스택
+
+Next.js 16 (App Router) · React 19 · TypeScript · SSE.
