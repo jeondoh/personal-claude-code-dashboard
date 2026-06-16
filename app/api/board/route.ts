@@ -136,7 +136,7 @@ export function GET() {
     totals[dir] = total;
   }
 
-  cards.sort((a, b) => (a.id < b.id ? -1 : 1));
+  cards.sort((a, b) => (a.id < b.id ? 1 : -1)); // newest first
 
   return new Response(
     JSON.stringify({ root: TEAM_ROOT, totals, count: cards.length, cards }),
