@@ -67,13 +67,25 @@ export function GET(req: Request) {
   try {
     const raw = fs.readFileSync(located.file, 'utf8');
     const { frontmatter, body } = parseFrontmatter(raw);
+
+    // New-format tickets (double-block) have no markdown body — synthesize from acceptance_criteria.
+    let displayBody = body;
+    if (!displayBody) {
+      const ac = Array.isArray(frontmatter.acceptance_criteria)
+        ? (frontmatter.acceptance_criteria as string[])
+        : null;
+      if (ac?.length) {
+        displayBody = '## Acceptance Criteria\n\n' + ac.map((c) => `- ${c}`).join('\n');
+      }
+    }
+
     return json({
       found: true,
       id,
       status: located.status,
-      file: path.relative(TEAM_ROOT, located.file), // relative location, e.g. tickets/done/T-0060-…
+      file: path.relative(TEAM_ROOT, located.file),
       frontmatter,
-      body,
+      body: displayBody,
     });
   } catch {
     return json({ found: false, id, error: 'read failed' }, 500);
