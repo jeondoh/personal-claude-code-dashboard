@@ -46,6 +46,7 @@ const pad = (n: number) => String(n).padStart(2, '0');
 /** Timeline stamps — clock only: HH:MM:SS */
 const fmtTime = (ts?: string) => {
   if (!ts) return '—';
+  if (/^\d{4}-\d{2}-\d{2}$/.test(ts)) return '—'; // date-only — time unknown
   const d = new Date(ts);
   if (isNaN(d.getTime())) return ts;
   return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
