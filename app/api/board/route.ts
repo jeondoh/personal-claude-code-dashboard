@@ -161,6 +161,7 @@ const tsMillis = (ts: string) => {
 function buildTimeline(
   c: {
     createdTs: string;
+    createdClock?: string;
     startedTs?: string;
     doneTs?: string;
     updatedTs: string;
@@ -197,7 +198,7 @@ function buildTimeline(
   }
 
   // Frontmatter fallbacks — fill milestones the event stream didn't supply.
-  if (!sawCreate) add(c.createdTs, '생성 (queue)', 'info');
+  if (!sawCreate) add(c.createdClock || c.createdTs, '생성 (queue)', 'info');
   if (!sawStart && c.startedTs && c.startedTs !== c.createdTs)
     add(c.startedTs, '작업 시작', 'active');
   const finishTs = c.doneTs || c.updatedTs;
@@ -214,8 +215,11 @@ function buildTimeline(
   return tl.map((it, i) => ({ ...it, seq: i }));
 }
 
+const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
+
 function toCard(file: string, column: Column, eventsByTicket: Map<string, EventRec[]>): Card | null {
-  const mtime = fs.statSync(file).mtime.toISOString();
+  const stat = fs.statSync(file);
+  const mtime = stat.mtime.toISOString();
   const { frontmatter: fm } = parseFrontmatter(readHead(file));
   const id = fmString(fm.id) || path.basename(file).replace(/\.md$/, '');
   if (!id) return null;
@@ -225,6 +229,18 @@ function toCard(file: string, column: Column, eventsByTicket: Map<string, EventR
   const agent = agentInfo(assignee, target);
 
   const createdTs = fmString(fm.created) || '';
+  // Clock-bearing creation time for the timeline's "생성" entry: frontmatter
+  // `created` is often date-only (no clock), rendering as "—". When there's no
+  // ticket.published event, fall back to the file's birthtime — BUT only while
+  // the ticket sits in its original published location. A status transition
+  // rewrites/moves the file, resetting birthtime to ~transition time, so for
+  // done/cancelled tickets birthtime is near the completion stamp (it would
+  // render "생성" *after* the merge). Trust it only for non-terminal columns.
+  const terminal = column === 'done' || column === 'cancelled';
+  let createdClock = createdTs;
+  if (!terminal && (!createdTs || DATE_ONLY.test(createdTs)) && stat.birthtimeMs > 0) {
+    createdClock = new Date(stat.birthtimeMs).toISOString();
+  }
   // Staleness clock: last_activity_at is canonical; last_update_at kept as a
   // fallback for old tickets. Also feeds updatedTs below.
   const lastActivityTs = fmString(fm.last_activity_at) || fmString(fm.last_update_at);
@@ -289,7 +305,7 @@ function toCard(file: string, column: Column, eventsByTicket: Map<string, EventR
     activeAgentName: active ? agent.name : undefined,
     activeSince: active ? firstTs(startedTs, createdTs) : undefined,
     timeline: buildTimeline(
-      { createdTs, startedTs, doneTs, updatedTs, column },
+      { createdTs, createdClock, startedTs, doneTs, updatedTs, column },
       eventsByTicket.get(id),
     ),
   };

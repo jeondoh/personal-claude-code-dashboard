@@ -156,5 +156,11 @@ describe('board route', () => {
     expect(ip).toEqual(['T-300', 'T-400', 'T-500', 'T-700']);
     expect(data.totals['in-progress']).toBe(4);
     expect(data.totals['backlog']).toBe(1);
+
+    // T-700 has no `created` and no events → the 생성 entry falls back to the
+    // file birthtime, which carries a real clock (not a date-only "—").
+    const create700 = byId.get('T-700')!.timeline.find((t) => t.label === '생성 (queue)')!;
+    expect(create700.ts).toMatch(/T\d{2}:\d{2}/); // clock-bearing ISO, not YYYY-MM-DD
+    expect(create700.ts).not.toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });
 });

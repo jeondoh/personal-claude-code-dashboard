@@ -177,6 +177,8 @@ export default function Board() {
 
       <MetricsBar />
 
+      <TokensPanel />
+
       <FeatureRollupBar features={board.features} />
 
       <EventFeed onOpen={setSelectedId} />
@@ -481,6 +483,142 @@ function MetricsBar() {
             </div>
           </div>
         )}
+      </div>
+    </section>
+  );
+}
+
+type TokenBucket = {
+  input: number;
+  output: number;
+  cacheWrite: number;
+  cacheRead: number;
+  totalTokens: number;
+  cost: number;
+};
+type TokenUsage = {
+  generatedAt: string;
+  coverage: { workspace: string; projectDirs: number; files: number; messages: number };
+  total: TokenBucket;
+  today: TokenBucket;
+  last7d: TokenBucket;
+  series: { day: string; totalTokens: number; cost: number }[];
+  models: {
+    model: string;
+    messages: number;
+    input: number;
+    output: number;
+    cacheWrite: number;
+    cacheRead: number;
+    cost: number;
+  }[];
+};
+
+const TOKENS_POLL_MS = 60000; // heavy scan — poll slowly; first load parses all history
+
+const fmtUsd = (n: number) =>
+  '$' + n.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+const fmtTok = (n: number) =>
+  n >= 1e9 ? (n / 1e9).toFixed(1) + 'B' : n >= 1e6 ? (n / 1e6).toFixed(1) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(0) + 'k' : String(n);
+const shortModel = (m: string) =>
+  m.replace(/^claude-/, '').replace(/-\d{8}$/, '');
+
+/**
+ * Token-usage panel. Data is Claude Code's own transcripts (incl. workflow
+ * subagents), so it covers ALL Claude activity under the workspace, not just the
+ * plugin — and cost is list-price approximate. Labeled as such in the UI.
+ */
+function TokensPanel() {
+  const [t, setT] = useState<TokenUsage | null>(null);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const pull = () =>
+      fetch('/api/tokens', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((d) => alive && (setT(d as TokenUsage), setErr(false)))
+        .catch(() => alive && setErr(true));
+    pull();
+    const id = setInterval(pull, TOKENS_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(id);
+    };
+  }, []);
+
+  if (err && !t) return null;
+  if (!t)
+    return (
+      <section className="metrics">
+        <p className="empty">토큰 사용량 집계 중… (최초 1회 전체 기록 파싱)</p>
+      </section>
+    );
+
+  const peak = Math.max(1, ...t.series.map((s) => s.cost));
+  const cacheReadPct = t.total.totalTokens
+    ? Math.round((t.total.cacheRead / t.total.totalTokens) * 100)
+    : 0;
+  const modelMax = Math.max(1, ...t.models.map((m) => m.cost));
+
+  const stats = [
+    { label: '오늘 비용', value: fmtUsd(t.today.cost), tone: 'active' },
+    { label: '7일 비용', value: fmtUsd(t.last7d.cost) },
+    { label: '누적 비용', value: fmtUsd(t.total.cost), hint: '리스트 단가 근사' },
+    { label: '누적 토큰', value: fmtTok(t.total.totalTokens) },
+    { label: '출력 토큰', value: fmtTok(t.total.output), hint: `입력 ${fmtTok(t.total.input)}` },
+    { label: '캐시 읽기', value: `${cacheReadPct}%`, hint: fmtTok(t.total.cacheRead) },
+    { label: '메시지', value: fmtTok(t.coverage.messages) },
+  ];
+
+  return (
+    <section className="metrics">
+      <h2 className="rollup-h" style={{ marginBottom: 10 }}>
+        Token Usage{' '}
+        <span className="tokens-note">
+          · Claude Code 트랜스크립트 (워크플로우 서브에이전트 포함 · 워크스페이스 전체 · {t.coverage.files} 파일)
+        </span>
+      </h2>
+
+      <div className="metrics-stats">
+        {stats.map((s) => (
+          <div key={s.label} className={`stat${s.tone ? ` stat-${s.tone}` : ''}`}>
+            <span className="stat-value">{s.value}</span>
+            <span className="stat-label">{s.label}</span>
+            {s.hint && <span className="stat-hint">{s.hint}</span>}
+          </div>
+        ))}
+      </div>
+
+      <div className="metrics-charts">
+        <div className="chart">
+          <div className="chart-h">일별 비용 (14일)</div>
+          <div className="bars">
+            {t.series.map((s) => (
+              <div className="bar-col" key={s.day} title={`${s.day}: ${fmtUsd(s.cost)} · ${fmtTok(s.totalTokens)} tok`}>
+                <div className="bar-track">
+                  <div className="bar-fill bar-cost" style={{ height: `${Math.round((s.cost / peak) * 100)}%` }} />
+                </div>
+                <span className="bar-x">{s.day.slice(8)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="chart">
+          <div className="chart-h">모델별 비용</div>
+          <div className="squad-bars">
+            {t.models.filter((m) => m.cost > 0).map((m) => (
+              <div className="squad-row" key={m.model} title={`${m.model} · ${m.messages} msgs · ${fmtUsd(m.cost)}`}>
+                <span className="model-tag">{shortModel(m.model)}</span>
+                <div className="squad-track">
+                  <div className="squad-fill squad-bg-model" style={{ width: `${Math.round((m.cost / modelMax) * 100)}%` }} />
+                </div>
+                <span className="squad-n">{fmtUsd(m.cost)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     </section>
   );
