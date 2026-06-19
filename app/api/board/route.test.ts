@@ -40,6 +40,31 @@ beforeAll(() => {
 
   // done: provides the satisfied dependency T-900
   write('done', 'T-900', `id: T-900\ntitle: done dep\nparent_feature: F-2\nstarted: ${old}\ndone: ${fresh}`);
+
+  // The plugin's active dir drifted to `in-flight` (frontmatter still in-progress).
+  // It must fold into the In Progress column, not vanish.
+  write('in-flight', 'T-700', `id: T-700\ntitle: in-flight wip\nassignee: backend\ntarget: backend\nparent_feature: F-2\nlast_activity_at: ${fresh}`);
+
+  // Backlog lives at .claude-team/backlog/ (sibling of tickets/), with done/ and
+  // archived/ subdirs that must be ignored.
+  const backlogDir = path.join(teamRoot, 'backlog');
+  fs.mkdirSync(path.join(backlogDir, 'done'), { recursive: true });
+  fs.writeFileSync(path.join(backlogDir, 'BL-1.md'), '---\nid: BL-1\ntype: backlog\ntitle: idea one\npriority: high\n---\n# body\n');
+  fs.writeFileSync(path.join(backlogDir, 'done', 'BL-OLD.md'), '---\nid: BL-OLD\ntitle: shipped idea\n---\n# body\n');
+
+  // Event stream supplies clock-precision timestamps the (date-only) frontmatter
+  // lacks. T-500 has only a date-only created in frontmatter; events should
+  // drive its timeline. Unknown event types must be tolerated (not rendered).
+  const events = [
+    { v: 1, seq: 1, ts: '2026-06-18T09:15:00+09:00', event: 'ticket.published', feature: null, ticket: 'T-500', actor: 'king', data: { target: 'frontend' } },
+    { v: 1, seq: 2, ts: '2026-06-18T09:20:00+09:00', event: 'stage.started', feature: null, ticket: 'T-500', actor: 'skill:prd', data: { stage: 'prd' } },
+    { v: 1, seq: 3, ts: '2026-06-18T09:42:00+09:00', event: 'stage.completed', feature: null, ticket: 'T-500', actor: 'skill:prd', data: { stage: 'prd' } },
+    { v: 1, seq: 4, ts: '2026-06-18T09:43:00+09:00', event: 'mystery.future', feature: null, ticket: 'T-500', actor: 'king', data: {} },
+  ];
+  fs.writeFileSync(
+    path.join(teamRoot, 'events.jsonl'),
+    events.map((e) => JSON.stringify(e)).join('\n') + '\nnot-json-tolerate-me\n',
+  );
 });
 
 afterAll(() => {
@@ -50,6 +75,7 @@ afterAll(() => {
 type BoardResp = {
   cards: Card[];
   features: { feature: string; total: number; done: number }[];
+  totals: Record<string, number>;
   staleHours: number;
 };
 
@@ -88,8 +114,47 @@ describe('board route', () => {
     // feature rollup: F-1 (T-100,T-200,T-300)=0/3, F-2 (T-400,T-900)=1/2, standalone last
     const f1 = data.features.find((f) => f.feature === 'F-1');
     const f2 = data.features.find((f) => f.feature === 'F-2');
-    expect(f1).toEqual({ feature: 'F-1', total: 3, done: 0 });
-    expect(f2).toEqual({ feature: 'F-2', total: 2, done: 1 });
+    // F-1: T-100,T-200 (queue, pending), T-300 (in-progress, active)
+    expect(f1).toEqual({ feature: 'F-1', total: 3, done: 0, active: 1, pending: 2 });
+    // F-2: T-900 (done), T-400 (in-progress) + T-700 (in-flight) active
+    expect(f2).toEqual({ feature: 'F-2', total: 3, done: 1, active: 2, pending: 0 });
     expect(data.features[data.features.length - 1].feature).toBe('standalone');
+  });
+
+  it('builds the timeline from the event stream (real clock) and tolerates unknown/bad lines', async () => {
+    const data = await load();
+    const t500 = data.cards.find((c) => c.id === 'T-500')!;
+
+    // ticket.published + stage.started + stage.completed → 3 entries, in ts order.
+    // The unknown 'mystery.future' event and the trailing non-JSON line are dropped.
+    expect(t500.timeline.map((t) => t.label)).toEqual(['생성 (queue)', 'PRD 시작', 'PRD 완료']);
+    // Real clock timestamps come from the events, not the date-only frontmatter.
+    expect(t500.timeline.map((t) => t.ts)).toEqual([
+      '2026-06-18T09:15:00+09:00',
+      '2026-06-18T09:20:00+09:00',
+      '2026-06-18T09:42:00+09:00',
+    ]);
+    expect(t500.timeline.map((t) => t.seq)).toEqual([0, 1, 2]); // re-sequenced for stable keys
+
+    // No events for T-900 → frontmatter milestones still drive its timeline.
+    const t900 = data.cards.find((c) => c.id === 'T-900')!;
+    expect(t900.timeline.map((t) => t.label)).toEqual(['작업 시작', '완료']);
+  });
+
+  it('maps in-flight → in-progress and surfaces the sibling backlog dir', async () => {
+    const data = await load();
+    const byId = new Map(data.cards.map((c) => [c.id, c]));
+
+    // in-flight ticket folds into the In Progress column (not dropped)
+    expect(byId.get('T-700')?.column).toBe('in-progress');
+    // backlog top-level file shows as a backlog card; backlog/done/* is ignored
+    expect(byId.get('BL-1')?.column).toBe('backlog');
+    expect(byId.has('BL-OLD')).toBe(false);
+
+    // totals are aggregated by column: in-progress = in-flight + in-progress dirs
+    const ip = data.cards.filter((c) => c.column === 'in-progress').map((c) => c.id).sort();
+    expect(ip).toEqual(['T-300', 'T-400', 'T-500', 'T-700']);
+    expect(data.totals['in-progress']).toBe(4);
+    expect(data.totals['backlog']).toBe(1);
   });
 });

@@ -6,10 +6,11 @@ import { Markdown } from '@/lib/markdown';
 
 // Board reads the live ticket folder via /api/board (directory = status), polled
 // every 5s with a manual refresh — the folder, not events.jsonl, is the truth.
-const BOARD_COLUMNS: Column[] = ['queue', 'in-progress', 'in-review', 'done', 'cancelled'];
+const BOARD_COLUMNS: Column[] = ['backlog', 'queue', 'in-progress', 'in-review', 'done', 'cancelled'];
 const POLL_MS = 5000;
 
 const COLUMN_LABEL: Record<Column, string> = {
+  backlog: 'Backlog',
   queue: 'Queue',
   'in-progress': 'In Progress',
   'in-review': 'In Review',
@@ -17,16 +18,13 @@ const COLUMN_LABEL: Record<Column, string> = {
   cancelled: 'Cancelled',
 };
 
-// dir keys in /api/board `totals` → column
-const COLUMN_DIR: Record<Column, string> = {
-  queue: 'queue',
-  'in-progress': 'in-progress',
-  'in-review': 'in-review',
-  done: 'done',
-  cancelled: 'cancelled',
+type FeatureRollup = {
+  feature: string;
+  total: number;
+  done: number;
+  active?: number;
+  pending?: number;
 };
-
-type FeatureRollup = { feature: string; total: number; done: number };
 type BoardData = {
   cards: Card[];
   totals: Record<string, number>;
@@ -177,6 +175,8 @@ export default function Board() {
         </span>
       </header>
 
+      <MetricsBar />
+
       <FeatureRollupBar features={board.features} />
 
       <EventFeed onOpen={setSelectedId} />
@@ -184,7 +184,7 @@ export default function Board() {
       <div className="columns">
         {BOARD_COLUMNS.map((col) => {
           const items = byColumn.get(col) ?? [];
-          const total = board.totals[COLUMN_DIR[col]] ?? items.length;
+          const total = board.totals[col] ?? items.length;
           const capped = total > items.length;
           return (
             <section key={col} className="column">
@@ -319,15 +319,22 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   );
 }
 
-/** Feature rollup: progress bar (done / total) per parent_feature. */
+/**
+ * Workflow lens: one stacked bar per parent_feature, split pending → active →
+ * done. A "feature" is the unit the orchestrator runs a workflow over, so this is
+ * the closest read on live workflow progress the ticket tree affords.
+ */
 function FeatureRollupBar({ features }: { features: FeatureRollup[] }) {
   if (!features.length) return null;
   return (
     <section className="rollup">
-      <h2 className="rollup-h">Features</h2>
+      <h2 className="rollup-h">Workflows / Features</h2>
       <div className="rollup-grid">
         {features.map((f) => {
-          const pct = f.total ? Math.round((f.done / f.total) * 100) : 0;
+          const done = f.done;
+          const active = f.active ?? 0;
+          const pending = f.pending ?? Math.max(0, f.total - done - active);
+          const pctOf = (n: number) => (f.total ? (n / f.total) * 100 : 0);
           const standalone = f.feature === 'standalone';
           return (
             <div key={f.feature} className={`rollup-item${standalone ? ' standalone' : ''}`}>
@@ -336,15 +343,144 @@ function FeatureRollupBar({ features }: { features: FeatureRollup[] }) {
                   {standalone ? '독립 티켓' : f.feature}
                 </span>
                 <span className="rollup-count">
-                  {f.done}/{f.total}
+                  {active > 0 && <span className="rollup-active-dot" title={`진행 중 ${active}`} />}
+                  {done}/{f.total}
                 </span>
               </div>
-              <div className="rollup-bar">
-                <span className="rollup-fill" style={{ width: `${pct}%` }} />
+              <div className="rollup-bar" title={`대기 ${pending} · 진행 ${active} · 완료 ${done}`}>
+                <span className="seg seg-done" style={{ width: `${pctOf(done)}%` }} />
+                <span className="seg seg-active" style={{ width: `${pctOf(active)}%` }} />
+                <span className="seg seg-pending" style={{ width: `${pctOf(pending)}%` }} />
               </div>
             </div>
           );
         })}
+      </div>
+    </section>
+  );
+}
+
+type Metrics = {
+  generatedAt: string;
+  kpis: {
+    wip: number;
+    inReview: number;
+    queue: number;
+    backlog: number;
+    cancelled: number;
+    doneToday: number;
+    done7d: number;
+    merged7d: number;
+    mergedTotal: number;
+    totalDone: number;
+    medianCycleHours: number;
+    p90CycleHours: number;
+    cycleSample: number;
+    openRescues: number;
+    openReviews: number;
+  };
+  throughput: { day: string; count: number }[];
+  bySquad: { squad: string; count: number }[];
+};
+
+const METRICS_POLL_MS = 15000;
+
+const fmtHours = (h: number) => (h >= 24 ? `${(h / 24).toFixed(1)}d` : `${h}h`);
+
+/** Grafana-style monitoring strip: KPI stat cards + throughput chart + squad mix. */
+function MetricsBar() {
+  const [m, setM] = useState<Metrics | null>(null);
+  const [err, setErr] = useState(false);
+
+  useEffect(() => {
+    let alive = true;
+    const pull = () =>
+      fetch('/api/metrics', { cache: 'no-store' })
+        .then((r) => r.json())
+        .then((d) => alive && (setM(d as Metrics), setErr(false)))
+        .catch(() => alive && setErr(true));
+    pull();
+    const t = setInterval(pull, METRICS_POLL_MS);
+    return () => {
+      alive = false;
+      clearInterval(t);
+    };
+  }, []);
+
+  if (err && !m) return null;
+  if (!m) return <section className="metrics"><p className="empty">메트릭 로딩 중…</p></section>;
+
+  const k = m.kpis;
+  const peak = Math.max(1, ...m.throughput.map((t) => t.count));
+  const squadTotal = Math.max(1, m.bySquad.reduce((s, x) => s + x.count, 0));
+
+  const stats: { label: string; value: React.ReactNode; tone?: string; hint?: string }[] = [
+    { label: 'WIP', value: k.wip, tone: k.wip > 0 ? 'active' : undefined, hint: 'in-flight + hold' },
+    { label: 'In Review', value: k.inReview, tone: k.inReview > 0 ? 'warn' : undefined },
+    { label: 'Queue', value: k.queue },
+    { label: 'Backlog', value: k.backlog },
+    { label: '오늘 완료', value: k.doneToday, tone: 'good' },
+    { label: '7일 완료', value: k.done7d, tone: 'good' },
+    { label: '7일 머지', value: k.merged7d, tone: 'good', hint: `누적 ${k.mergedTotal}` },
+    { label: '총 완료', value: k.totalDone },
+    {
+      label: '사이클(중앙값)',
+      value: fmtHours(k.medianCycleHours),
+      hint: `p90 ${fmtHours(k.p90CycleHours)} · n=${k.cycleSample}`,
+    },
+    ...(k.openRescues > 0 ? [{ label: 'Rescue', value: k.openRescues, tone: 'bad' }] : []),
+    ...(k.openReviews > 0 ? [{ label: 'Review rounds', value: k.openReviews, tone: 'warn' }] : []),
+  ];
+
+  return (
+    <section className="metrics">
+      <div className="metrics-stats">
+        {stats.map((s) => (
+          <div key={s.label} className={`stat${s.tone ? ` stat-${s.tone}` : ''}`}>
+            <span className="stat-value">{s.value}</span>
+            <span className="stat-label">{s.label}</span>
+            {s.hint && <span className="stat-hint">{s.hint}</span>}
+          </div>
+        ))}
+      </div>
+
+      <div className="metrics-charts">
+        <div className="chart">
+          <div className="chart-h">처리량 (일별 완료 · 14일)</div>
+          <div className="bars">
+            {m.throughput.map((t) => (
+              <div className="bar-col" key={t.day} title={`${t.day}: ${t.count}건`}>
+                <div className="bar-track">
+                  <div
+                    className="bar-fill"
+                    style={{ height: `${Math.round((t.count / peak) * 100)}%` }}
+                  />
+                </div>
+                <span className="bar-x">{t.day.slice(8)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {m.bySquad.length > 0 && (
+          <div className="chart chart-squad">
+            <div className="chart-h">스쿼드 믹스 (최근 완료)</div>
+            <div className="squad-bars">
+              {m.bySquad.map((s) => (
+                <div className="squad-row" key={s.squad}>
+                  <span className={`squad-tag squad-${s.squad}`}>{s.squad}</span>
+                  <div className="squad-track">
+                    <div
+                      className={`squad-fill squad-bg-${s.squad}`}
+                      style={{ width: `${Math.round((s.count / squadTotal) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="squad-n">{s.count}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </section>
   );

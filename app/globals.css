@@ -52,8 +52,11 @@ html, body {
 
 .columns {
   display: grid;
-  grid-template-columns: repeat(5, minmax(200px, 1fr));
+  grid-template-columns: repeat(6, minmax(190px, 1fr));
   gap: 14px;
+}
+@media (max-width: 1400px) {
+  .columns { grid-template-columns: repeat(3, minmax(200px, 1fr)); }
 }
 @media (max-width: 1100px) {
   .columns { grid-template-columns: repeat(2, minmax(220px, 1fr)); }
@@ -242,6 +245,7 @@ html, body {
   border: 1px solid var(--border);
   color: var(--muted);
 }
+.col-backlog { color: #8b949e; }
 .col-in-progress { color: var(--accent); }
 .col-in-review { color: #d29922; }
 .col-done { color: #3fb950; }
@@ -437,17 +441,96 @@ html, body {
 }
 .rollup-bar {
   height: 6px;
+  display: flex;
   background: var(--panel-2);
   border-radius: 999px;
   overflow: hidden;
 }
-.rollup-fill {
-  display: block;
-  height: 100%;
-  background: #3fb950;
+.rollup-bar .seg { height: 100%; transition: width 0.3s ease; }
+.seg-done { background: #3fb950; }
+.seg-active { background: var(--accent); }
+.seg-pending { background: #30363d; }
+.rollup-active-dot {
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin-right: 5px;
   border-radius: 999px;
-  transition: width 0.3s ease;
+  background: var(--accent);
+  box-shadow: 0 0 0 0 rgba(68, 147, 248, 0.6);
+  animation: pulse 1.6s infinite;
 }
+
+/* ── metrics (grafana-style) ───────────────────────────────────── */
+.metrics {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  margin-bottom: 14px;
+}
+.metrics-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+.stat {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  background: var(--panel-2);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+.stat-value { font-size: 20px; font-weight: 700; color: var(--text); line-height: 1.1; font-variant-numeric: tabular-nums; }
+.stat-label { font-size: 11px; color: var(--muted); }
+.stat-hint { font-size: 10px; color: var(--border); font-family: ui-monospace, SFMono-Regular, monospace; }
+.stat-active { border-left-color: var(--accent); }
+.stat-active .stat-value { color: var(--accent); }
+.stat-good { border-left-color: #3fb950; }
+.stat-warn { border-left-color: #d29922; }
+.stat-bad { border-left-color: #f85149; }
+.stat-bad .stat-value { color: #f85149; }
+
+.metrics-charts {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 16px;
+}
+@media (max-width: 900px) { .metrics-charts { grid-template-columns: 1fr; } }
+.chart-h {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  margin-bottom: 8px;
+  font-weight: 600;
+}
+.bars { display: flex; align-items: flex-end; gap: 4px; height: 90px; }
+.bar-col { flex: 1; display: flex; flex-direction: column; align-items: center; gap: 3px; height: 100%; }
+.bar-track { flex: 1; width: 100%; display: flex; align-items: flex-end; }
+.bar-fill {
+  width: 100%;
+  min-height: 2px;
+  background: var(--accent);
+  border-radius: 3px 3px 0 0;
+  transition: height 0.3s ease;
+}
+.bar-x { font-size: 9px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+.squad-bars { display: flex; flex-direction: column; gap: 6px; }
+.squad-row { display: flex; align-items: center; gap: 8px; }
+.squad-tag { font-size: 11px; width: 48px; flex: none; font-weight: 600; }
+.squad-track { flex: 1; height: 8px; background: var(--panel-2); border-radius: 999px; overflow: hidden; }
+.squad-fill { height: 100%; border-radius: 999px; background: var(--accent); transition: width 0.3s ease; }
+.squad-bg-BE { background: #79c0ff; }
+.squad-bg-FE { background: #ffa657; }
+.squad-bg-design { background: #bc8cff; }
+.squad-bg-other { background: var(--muted); }
+.squad-n { font-size: 11px; color: var(--muted); width: 28px; text-align: right; font-variant-numeric: tabular-nums; }
 
 /* ── event feed ────────────────────────────────────────────────── */
 .feed {

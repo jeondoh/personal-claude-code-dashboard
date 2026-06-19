@@ -11,7 +11,7 @@ export type EventRec = {
   data: Record<string, unknown>;
 };
 
-export type Column = 'queue' | 'in-progress' | 'in-review' | 'done' | 'cancelled';
+export type Column = 'backlog' | 'queue' | 'in-progress' | 'in-review' | 'done' | 'cancelled';
 export const COLUMNS: Column[] = ['queue', 'in-progress', 'in-review', 'done'];
 
 export type Stage = {
