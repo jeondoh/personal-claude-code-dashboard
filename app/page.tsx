@@ -6,7 +6,10 @@ import { Markdown } from '@/lib/markdown';
 
 // Board reads the live ticket folder via /api/board (directory = status), polled
 // every 5s with a manual refresh — the folder, not events.jsonl, is the truth.
-const BOARD_COLUMNS: Column[] = ['backlog', 'queue', 'in-progress', 'in-review', 'done', 'cancelled'];
+// In Review is intentionally omitted: this workflow reviews tickets while they
+// stay in-flight (the tickets/in-review/ dir is never populated), so the column
+// was always empty. The board route folds any in-review dir into In Progress.
+const BOARD_COLUMNS: Column[] = ['backlog', 'queue', 'in-progress', 'done', 'cancelled'];
 const POLL_MS = 5000;
 
 const COLUMN_LABEL: Record<Column, string> = {
@@ -418,7 +421,6 @@ function MetricsBar() {
 
   const stats: { label: string; value: React.ReactNode; tone?: string; hint?: string }[] = [
     { label: 'WIP', value: k.wip, tone: k.wip > 0 ? 'active' : undefined, hint: 'in-flight + hold' },
-    { label: 'In Review', value: k.inReview, tone: k.inReview > 0 ? 'warn' : undefined },
     { label: 'Queue', value: k.queue },
     { label: 'Backlog', value: k.backlog },
     { label: '오늘 완료', value: k.doneToday, tone: 'good' },

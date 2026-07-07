@@ -22,7 +22,12 @@ const DIR_TO_COLUMN: Record<string, Column> = {
   queue: 'queue',
   'in-progress': 'in-progress',
   'in-flight': 'in-progress', // current active dir (replaced in-progress)
-  'in-review': 'in-review',
+  // The amourconte workflow never parks tickets in tickets/in-review/ — review
+  // runs while the ticket stays in-flight (tracked by the PR + reviews/RR-* and
+  // review_rounds), then it goes straight to done. So the In Review column was
+  // always empty; we drop it from the board and fold this dir into In Progress
+  // so a ticket is never dropped if the dir is ever used.
+  'in-review': 'in-progress',
   done: 'done',
   cancelled: 'cancelled',
   hold: 'in-progress', // paused work still belongs with active

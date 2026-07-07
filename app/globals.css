@@ -52,7 +52,7 @@ html, body {
 
 .columns {
   display: grid;
-  grid-template-columns: repeat(6, minmax(190px, 1fr));
+  grid-template-columns: repeat(5, minmax(190px, 1fr));
   gap: 14px;
 }
 @media (max-width: 1400px) {
